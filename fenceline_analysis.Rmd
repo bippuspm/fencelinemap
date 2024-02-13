@@ -1,0 +1,339 @@
+---
+title: "Fenceline Map Data Analysis and Visualization"
+author: "Paige Varner"
+date: "2024-02-09"
+output: html_document
+---
+
+#load libraries
+```{r}
+library("dplyr")
+library("bigrquery")
+library("DBI")
+library("pheatmap")
+library("RColorBrewer")
+library("Rmisc")
+library("stats")
+library("rstatix")
+library("ggplot2")
+library("tigris")
+library("sf")
+library("tidycensus")
+library("viridis")
+```
+
+#read and format data
+```{r}
+data = read.csv("~/TSCA/Fenceline Map/fencelinemap/mapdata_v4.csv")
+
+#add weighted risk levels
+data$cancer_risklevel = cut(data$Cancer_weighted_5yr_sum, c(-Inf,20000,100000,Inf), c("lower", "higher", "highest"))
+
+data$asthma_risklevel = cut(data$Asthma_weighted_5yr_sum, c(-Inf,20000,100000,Inf), c("lower", "higher", "highest"))
+
+data$dev_risklevel = cut(data$Dev_weighted_5yr_sum, c(-Inf,20000,100000,Inf), c("lower", "higher", "highest"))
+
+#subset into health endpoints
+cancer = filter(data, Cancer_PoundsReleased_5yr_sum > 0)
+asthma = filter(data, Asthma_PoundsReleased_5yr_sum > 0)
+dev = filter(data, Dev_PoundsReleased_5yr_sum > 0)
+```
+
+
+#percent of total facilities releasing more than 1 chemical that causes cancer, asthma, or dev
+```{r}
+#cancer: 336/1683 = 20%
+nrow(cancer[grepl(", ", cancer$Chemical), ])
+
+#dev: 338/1115 = 30%
+nrow(dev[grepl(", ", dev$Chemical), ])
+
+#asthma: 150/890  = 17%
+nrow(asthma[grepl(", ", asthma$Chemical), ])
+
+```
+
+
+#number of people exposed to 1 or more of cancer, asthma, dev causing chemicals from same facility (within 6 miles)
+```{r}
+#cancer: 39661270
+cancer2 = filter(cancer[grepl(", ", cancer$Chemical), ])
+sum(cancer2$population_10km)
+
+#dev: 36499048
+dev2 = filter(dev[grepl(", ", dev$Chemical), ])
+sum(dev2$population_10km)
+
+#asthma: 14075491
+asthma2 = filter(asthma[grepl(", ", asthma$Chemical), ])
+sum(asthma2$population_10km)
+```
+#percent of total facilities neighboring another facility (within 6 miles)
+```{r}
+#all facilities: 1237/2116 = 58%
+sum(data$F10km_facnum > 0) 
+
+#cancer: 965/1683 = 57%
+sum(cancer$F10km_facnum > 0) 
+
+#asthma: 445/890 = 50%
+sum(asthma$F10km_facnum > 0) 
+
+#dev: 743/1115 = 67%
+sum(dev$F10km_facnum > 0)
+```
+
+
+#number of people living with in 6 miles of more than 1 facility
+```{r}
+#all facilities: 179303362
+data6 = subset(data, data$F10km_facnum > 0)
+sum(data6$population_10km)
+
+#cancer: 134336644
+cancer6 = subset(cancer, cancer$F10km_facnum > 0)
+sum(cancer6$population_10km)
+
+#asthma: 50917757
+asthma6 = subset(asthma, asthma$F10km_facnum > 0)
+sum(asthma6$population_10km)
+
+#dev: 111839393
+dev6 = subset(dev, dev$F10km_facnum > 0)
+sum(dev6$population_10km)
+
+```
+
+
+#percent of total facilities that contribute to mroe than 1 health effect 
+```{r}
+# 1464/2116 = 69%
+sum(data$Health_Risk_Count > 1)
+```
+
+#total population exposed to facilities contributing to more than 1 health effect
+```{r}
+# 129243466
+health2 = subset(data, data$Health_Risk_Count > 1)
+sum(health2$population_10km)
+```
+
+
+#percent of total facilities that are either releasing more than 1 chemical contributing to cancer, asthma, or dev, OR is neighboring at least 1 more facility
+```{r}
+#all facilities: 1341/2116 = 63%
+sum(grepl(", ", data$Chemical) | data$F10km_facnum > 0)
+
+#cancer: 1066/1683 = 63%
+sum(grepl(", ", cancer$Chemical) | cancer$F10km_facnum > 0) 
+
+#asthma: 488/890 = 55%
+sum(grepl(", ", asthma$Chemical) | asthma$F10km_facnum > 0)
+
+#dev: 833/1115 = 75%
+sum(grepl(", ", dev$Chemical) | dev$F10km_facnum > 0)
+```
+
+
+#population with 6 miles of facilities that are either releasing more than 1 chemical contributing to cancer, asthma, or dev, OR is neighboring at least 1 more facility
+```{r}
+#all facilities: 183859376
+data3 = subset(data, grepl(", ", data$Chemical) | data$F10km_facnum > 0)
+sum(data3$population_10km)
+
+#cancer: 138420463
+cancer3 = subset(cancer, grepl(", ", cancer$Chemical) | cancer$F10km_facnum > 0) 
+sum(cancer3$population_10km)
+
+#asthma: 52663270
+asthma3 = subset(asthma, grepl(", ", asthma$Chemical) | asthma$F10km_facnum > 0)
+sum(asthma3$population_10km)
+
+#dev: 115897240
+dev3 = subset(dev, grepl(", ", dev$Chemical) | dev$F10km_facnum > 0)
+sum(dev3$population_10km)
+```
+
+
+## adding baseline vulnerability data to CEAM data ##
+
+#get census tract GEOIDs for all facilities based on long/lat
+```{r}
+cvi = read.csv("~/TSCA/CRA/CRA_Prioritization/Data/cvi_scores.csv")
+colnames(cvi)[1] = "GEOID"
+
+#getting census tract info for all TRI facilities
+tracts = tracts(state = NULL, cb = TRUE)
+
+data.points <- data %>%
+  st_as_sf(coords=c('Longitude', 'Latitude'), crs=st_crs(tracts))
+
+data.tracts = st_join(data.points, tracts)
+```
+
+
+#join CVI data to CEAM data based on GEOID (why am I losing a bunch of rows here?)
+```{r}
+data_cvi = merge(data.tracts, cvi, by = "GEOID")
+```
+
+#put categorical CVI values into another column
+```{r}
+data_cvi$bv_cat = cut(data_cvi$Baseline.Vulnerabilities, c(-Inf, 0.344, 0.489, 0.643, 0.751, Inf), c("very low", "low", "medium", "high", "very high"))
+
+```
+
+#subset data_cvi by health risk
+```{r}
+cancer_cvi = filter(data_cvi, Cancer_PoundsReleased_5yr_sum > 0)
+asthma_cvi = filter(data_cvi, Asthma_PoundsReleased_5yr_sum > 0)
+dev_cvi = filter(data_cvi, Dev_PoundsReleased_5yr_sum > 0)
+```
+
+
+#correlations between risk levels and vulnerability levels overall: not seeing much of a correlation
+```{r}
+#baseline vul ~ cancer risk
+reg_cvi_vul = lm(data_cvi$Baseline.Vulnerabilities ~ data_cvi$Cancer_weighted_5yr_sum)
+reg_cancer = ggplot(data_cvi, aes(x = log(Cancer_weighted_5yr_sum), y = Baseline.Vulnerabilities)) + geom_point() + geom_smooth(method = "lm", se = FALSE)
+reg_cancer
+
+#baseline vul ~ asthma risk
+reg_asthma = ggplot(data_cvi, aes(x = log(Asthma_weighted_5yr_sum), y = Baseline.Vulnerabilities)) + geom_point() + geom_smooth(method = "lm", se = FALSE)
+reg_asthma
+
+#baseline vul ~ dev risk
+reg_dev = ggplot(data_cvi, aes(x = log(Dev_weighted_5yr_sum), y = Baseline.Vulnerabilities)) + geom_point() + geom_smooth(method = "lm", se = FALSE)
+reg_dev
+```
+
+
+#summary of risk levels for each vulnerability, graph, (could still run statistics if I want/need)
+```{r}
+#cancer
+bvlevel_summary_cancer = summarySE(cancer_cvi, groupvars = "bv_cat", measurevar = "Cancer_weighted_5yr_sum")
+
+bvlevel_cancer = ggplot(bvlevel_summary_cancer, aes(x = bv_cat, y = Cancer_weighted_5yr_sum)) + geom_point(size = 3) + theme_bw() + ylab("Weighted Sum of 5 Year Release (lbs)") + xlab("Baseline Vulnerability Level") + theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) + geom_errorbar(aes(ymin = Cancer_weighted_5yr_sum - se, ymax = Cancer_weighted_5yr_sum + se), width = 0.2)
+
+bvlevel_cancer
+
+ggsave(filename = "bv_risklevel_cancer.png", device = "png", plot = bvlevel_cancer, path = "~/TSCA/Fenceline Map/fencelinemap/Output", width = 10, height = 5)
+
+#asthma
+bvlevel_summary_asthma = summarySE(asthma_cvi, groupvars = "bv_cat", measurevar = "Asthma_weighted_5yr_sum")
+
+bvlevel_asthma = ggplot(bvlevel_summary_asthma, aes(x = bv_cat, y = Asthma_weighted_5yr_sum)) + geom_point(size = 3) + theme_bw() + ylab("Weighted Sum of 5 Year Release (lbs)") + xlab("Baseline Vulnerability Level") + theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) + geom_errorbar(aes(ymin = Asthma_weighted_5yr_sum - se, ymax = Asthma_weighted_5yr_sum + se), width = 0.2)
+
+bvlevel_asthma
+
+ggsave(filename = "bv_risklevel_asthma.png", device = "png", plot = bvlevel_asthma, path = "~/TSCA/Fenceline Map/fencelinemap/Output", width = 10, height = 5)
+
+#dev
+bvlevel_summary_dev = summarySE(dev_cvi, groupvars = "bv_cat", measurevar = "Dev_weighted_5yr_sum")
+
+bvlevel_dev = ggplot(bvlevel_summary_dev, aes(x = bv_cat, y = Dev_weighted_5yr_sum)) + geom_point(size = 3) + theme_bw() + ylab("Weighted Sum of 5 Year Release (lbs)") + xlab("Baseline Vulnerability Level") + theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) + geom_errorbar(aes(ymin = Dev_weighted_5yr_sum - se, ymax = Dev_weighted_5yr_sum + se), width = 0.2)
+
+bvlevel_dev
+
+ggsave(filename = "bv_risklevel_dev.png", device = "png", plot = bvlevel_dev, path = "~/TSCA/Fenceline Map/fencelinemap/Output", width = 10, height = 5)
+```
+
+
+#correlating high vulnerability and high risk with heat map (none of these are interesting and are counter to what we would expect)
+```{r}
+#cancer
+cat_combos_cancer = prop.table(table(cancer_cvi$cancer_risklevel, cancer_cvi$bv_cat)) * 100
+print(cat_combos_cancer)
+
+cancer_cats_matrix = as.matrix(cat_combos_cancer)
+
+pheatmap(cat_combos_cancer, cluster_rows = FALSE, cluster_cols = FALSE, display_numbers = FALSE, cellheight=32,cellwidth=32, fontsize_number = 10, angle_col = 45, legend = T, filename = "~/TSCA/Fenceline Map/fencelinemap/Output/catheatmap_cancer.png", width = 5, height = 3)
+
+#asthma
+cat_combos_asthma = prop.table(table(asthma_cvi$asthma_risklevel, asthma_cvi$bv_cat)) * 100
+print(cat_combos_asthma)
+asthma_cats_matrix = as.matrix(cat_combos_asthma)
+
+pheatmap(cat_combos_asthma, cluster_rows = FALSE, cluster_cols = FALSE, display_numbers = FALSE, cellheight=32,cellwidth=32, fontsize_number = 10, angle_col = 45, legend = T, filename = "~/TSCA/Fenceline Map/fencelinemap/Output/catheatmap_asthma.png", width = 5, height = 3)
+
+#dev
+cat_combos_dev = prop.table(table(dev_cvi$dev_risklevel, dev_cvi$bv_cat)) * 100
+print(cat_combos_dev)
+dev_cats_matrix = as.matrix(cat_combos_dev)
+
+pheatmap(cat_combos_dev, cluster_rows = FALSE, cluster_cols = FALSE, display_numbers = FALSE, cellheight=32,cellwidth=32, fontsize_number = 10, angle_col = 45, legend = T, filename = "~/TSCA/Fenceline Map/fencelinemap/Output/catheatmap_dev.png", width = 5, height = 3)
+```
+
+
+#top 10 cities/counties with the highest exposures 
+```{r}
+#all facilities
+data_cities = summarySE(data, groupvars = c("City", "State"), measurevar = "PoundsReleased_5yr_sum", na.rm = TRUE)
+data_top10 = data_cities %>%
+  arrange(desc(PoundsReleased_5yr_sum))
+
+#cancer
+cancer_cities = summarySE(cancer, groupvars = c("City", "State"), measurevar = "PoundsReleased_5yr_sum", na.rm = TRUE)
+cancer_top10 = cancer_cities %>%
+  arrange(desc(PoundsReleased_5yr_sum))
+
+#asthma
+asthma_cities = summarySE(asthma, groupvars = c("City", "State"), measurevar = "PoundsReleased_5yr_sum", na.rm = TRUE)
+asthma_top10 = asthma_cities %>%
+  arrange(desc(PoundsReleased_5yr_sum))
+
+#dev
+dev_cities = summarySE(dev, groupvars = c("City", "State"), measurevar = "PoundsReleased_5yr_sum", na.rm = TRUE)
+dev_top10 = dev_cities %>%
+  arrange(desc(PoundsReleased_5yr_sum))
+```
+
+
+#top 10 cities/counties with the highest weighted risk levels
+```{r}
+#cancer
+cancer_cities_risk = summarySE(cancer, groupvars = c("City", "State"), measurevar = "Cancer_weighted_5yr_sum", na.rm = TRUE)
+cancer_top10_risk = cancer_cities_risk %>%
+  arrange(desc(Cancer_weighted_5yr_sum))
+
+write.csv(cancer_top10_risk, "~/TSCA/Fenceline Map/fencelinemap/Output/cancer_topcities_risk.csv")
+
+
+#asthma
+asthma_cities_risk = summarySE(asthma, groupvars = c("City", "State"), measurevar = "Asthma_weighted_5yr_sum", na.rm = TRUE)
+asthma_top10_risk = asthma_cities_risk %>%
+  arrange(desc(Asthma_weighted_5yr_sum))
+
+write.csv(asthma_top10_risk, "~/TSCA/Fenceline Map/fencelinemap/Output/asthma_topcities_risk.csv")
+
+#dev
+dev_cities_risk = summarySE(dev, groupvars = c("City", "State"), measurevar = "Dev_weighted_5yr_sum", na.rm = TRUE)
+dev_top10_risk = dev_cities_risk %>%
+  arrange(desc(Dev_weighted_5yr_sum))
+
+write.csv(dev_top10_risk, "~/TSCA/Fenceline Map/fencelinemap/Output/dev_topcities_risk.csv")
+```
+
+
+##geographic information##
+
+#filter for facilities in each state
+```{r}
+
+```
+
+#percent of facilities located in TX/LA/PA/NC
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
