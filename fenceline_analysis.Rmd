@@ -443,6 +443,63 @@ sum(la$Blk_pop_10km)
 ```
 
 
+#national stats for Black Americans
+```{r}
+#subset again into health endpoints so it has the values I'm looking for that I created above
+cancer = filter(data, Cancer_PoundsReleased_5yr_sum > 0)
+asthma = filter(data, Asthma_PoundsReleased_5yr_sum > 0)
+dev = filter(data, Dev_PoundsReleased_5yr_sum > 0)
+```
+
+#cancer
+```{r}
+#ttest: p < 2.2e-16; mean of Blk difference is 17%, mean of Wht difference is -4%
+black.white.ttest = t.test(cancer$Blk_difference, cancer$Wht_difference, paired = FALSE)
+black.white.ttest
+
+#odds ratio calculation: 1.07
+sum(cancer$Blk_pop_10km) #26284221
+sum(cancer$Blk_pop_county) #201976784
+sum(cancer$WhtPercent_10km * cancer$population_10km) #96796933
+sum(cancer$WhtPercent_county * cancer$populationE_county) #798930907
+
+#number of Black americans living near facilities = 26284221
+sum(cancer$Blk_pop_10km)
+```
+
+
+#dev
+```{r}
+#ttest: p < 2.2e-16; mean of Blk difference is 16%, mean of Wht difference is -5.5%
+black.white.ttest = t.test(dev$Blk_difference, dev$Wht_difference, paired = FALSE)
+black.white.ttest
+
+#odds ratio calculation: 1.13
+sum(dev$Blk_pop_10km) #22299741
+sum(dev$Blk_pop_county) #166106566
+sum(dev$WhtPercent_10km * dev$population_10km) #79163443
+sum(dev$WhtPercent_county * dev$populationE_county) #664863076
+
+#number of Black americans living near facilities = 22299741
+sum(dev$Blk_pop_10km)
+```
+#asthma
+```{r}
+#ttest: p = 1e-10; mean of Blk difference is 17%, mean of Wht difference is -%
+black.white.ttest = t.test(asthma$Blk_difference, asthma$Wht_difference, paired = FALSE)
+black.white.ttest
+
+#odds ratio calculation: white people are more likely to live near asthma facilities
+sum(asthma$Blk_pop_10km) #11377738
+sum(asthma$Blk_pop_county) #81680345
+sum(asthma$WhtPercent_10km * asthma$population_10km) #37198428
+sum(asthma$WhtPercent_county * asthma$populationE_county) #309027743
+
+#number of Black americans living near facilities = 11377738
+sum(asthma$Blk_pop_10km)
+```
+
+
 
 
 
