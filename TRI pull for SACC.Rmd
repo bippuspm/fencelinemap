@@ -1,0 +1,80 @@
+---
+title: "TRI Pull for SACC"
+author: "Paige Varner"
+date: "2024-02-23"
+output: html_document
+---
+
+
+#load libraries
+```{r}
+library("dplyr")
+library("bigrquery")
+library("DBI")
+library("pheatmap")
+library("RColorBrewer")
+library("Rmisc")
+library("stats")
+library("rstatix")
+library("ggplot2")
+```
+
+
+
+#load data and filter for TSCA chemicals (minus the 10 with risk management)
+```{r}
+df = read.csv("~/2022_us.csv")
+
+tsca.df = filter(df, X37..CAS. == "75-34-3" | X37..CAS. == "79-00-5" | X37..CAS. == "107-06-2" | X37..CAS. == "78-87-5" | X37..CAS. == "106-99-0" | X37..CAS. == "1222-05-5" | X37..CAS. == "79-94-7" | X37..CAS. == "85-68-7" | X37..CAS. == "25637-99-4" | X37..CAS. == "3194-55-6" | X37..CAS. == "3194-57-8" | X37..CAS. == "117-81-7" | X37..CAS. == "84-69-5" | X37..CAS. == "26761-40-0" | X37..CAS. == "68515-49-1" | X37..CAS. == "28553-12-0" | X37..CAS. == "68515-48-0" | X37..CAS. == "84-74-2" | X37..CAS. == "84-61-7" | X37..CAS. == "106-93-4" | X37..CAS. == "50-00-0" | X37..CAS. == "95-50-1" | X37..CAS. == "556-67-2" | X37..CAS. == "106-46-7" | X37..CAS. == "115-86-6" | X37..CAS. == "85-44-9" | X37..CAS. == "156-60-5" | X37..CAS. == "115-96-8" | X37..CAS. == "75-01-4" | X37..CAS. == "75-07-0" | X37..CAS. == "107-13-1" | X37..CAS. == "62-53-3" | X37..CAS. == "101-14-4")
+
+length(unique(tsca.df[["X34..CHEMICAL"]]))
+
+write.csv(tsca.df, file = "~/tri_2022_tsca.csv")
+```
+
+
+#filter for Exxon Mobil, Dow Chemical, BASF, Corteva, and Hexion
+```{r}
+tsca.df.basf = tsca.df[apply(tsca.df, 1, function(row) any(grepl("BASF", row))), ]
+tsca.df.exxon = tsca.df[apply(tsca.df, 1, function(row) any(grepl("EXXON", row))), ]
+tsca.df.corteva = tsca.df[apply(tsca.df, 1, function(row) any(grepl("CORTEVA", row))), ]
+tsca.df.hexion = tsca.df[apply(tsca.df, 1, function(row) any(grepl("HEXION", row))), ]
+tsca.df.dupont = tsca.df[apply(tsca.df, 1, function(row) any(grepl("DUPONT", row))), ]
+tsca.df.chemours = tsca.df[apply(tsca.df, 1, function(row) any(grepl("CHEMOURS", row))), ]
+
+tsca.df.dow1 = tsca.df[grepl("DOW", tsca.df$X4..FACILITY.NAME), ]
+tsca.df.dow2 = tsca.df[grepl("DOW", tsca.df$X15..PARENT.CO.NAME), ]
+tsca.df.dow3 = tsca.df[grepl("DOW", tsca.df$X17..STANDARD.PARENT.CO.NAME), ]
+
+tsca.df.dow = unique(rbind(tsca.df.dow1, tsca.df.dow2, tsca.df.dow3))
+
+tsca.df.all = rbind(tsca.df.basf, tsca.df.exxon, tsca.df.corteva, tsca.df.hexion, tsca.df.dow, tsca.df.dupont, tsca.df.chemours)
+
+write.csv(tsca.df.all, file = "~/tri_2022_tsca_filtered.csv")
+```
+
+
+#load and filter RMP data for formaldehyde and Corteva, Covestro, DuPont, and Hexion
+```{r}
+facilities = read.csv("~/RMP Data/facilities.csv")
+accidents = read.csv("~/RMP Data/accidents.csv")
+
+#filtering for formaldehyde 
+facilities.formaldehyde = facilities[grepl("Formaldehyde", facilities$ChemicalsInLatest),]
+accidents.formaldehyde = accidents[grepl("Formaldehyde", accidents$AccidentChemicals),]
+
+#filtering for companies in facilities df
+facilities.formaldehyde.cov = facilities.formaldehyde[grepl("Covestro", facilities.formaldehyde$Name),]
+facilities.formaldehyde.hex = facilities.formaldehyde[grepl("Hexion", facilities.formaldehyde$Name),]
+
+facilities.form.companies = rbind(facilities.formaldehyde.hex, facilities.formaldehyde.cov)
+
+write.csv(facilities.form.companies, file = "~/RMP Data/facilities_formaldehyde_companies.csv")
+
+```
+
+
+
+
+
+
